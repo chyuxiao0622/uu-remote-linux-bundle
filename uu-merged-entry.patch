@@ -1,0 +1,67 @@
+diff --git a/c_engine/assist_window.c b/c_engine/assist_window.c
+index 5ef0b3d..580f144 100644
+--- a/c_engine/assist_window.c
++++ b/c_engine/assist_window.c
+@@ -8,6 +8,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <dlfcn.h>
++#include <unistd.h>
+ #include "i18n.h"
+ #include "ui_theme.h"
+ static void on_language(GtkComboBox *c, gpointer note);
+@@ -149,6 +150,26 @@ static void on_copy_code(GtkButton *b, gpointer d) { (void)b; (void)d; copy_text
+ 
+ static void on_eye(GtkButton *b, gpointer d) { (void)b; (void)d; code_visible = !code_visible; render_code(); }
+ 
++
++// 被控端和控制端合并成一个入口：主机窗口里直接拉起同目录的控制端。
++static void spawn_viewer(void) {
++    char exe[4096];
++    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
++    if (n <= 0) return;
++    exe[n] = '\0';
++    char *slash = strrchr(exe, '/');
++    if (!slash) return;
++    *slash = '\0';
++    char *cmd = g_strdup_printf("%s/uuremote-viewer ui", exe);
++    g_spawn_command_line_async(cmd, NULL);
++    g_free(cmd);
++}
++
++static void on_open_viewer(GtkButton *b, gpointer d) {
++    (void)b; (void)d;
++    spawn_viewer();
++}
++
+ static void on_share(GtkButton *b, gpointer d) {
+     (void)b; (void)d;
+     if (!current_id[0] || !current_code[0]) return;
+@@ -328,6 +349,9 @@ static void build_tray(void) {
+     GtkWidget *quit = gtk_menu_item_new_with_label(L("退出", "Quit"));
+     g_signal_connect(quit, "activate", G_CALLBACK(on_tray_quit), NULL);
+     gtk_menu_shell_append(GTK_MENU_SHELL(tray_menu), open);
++    GtkWidget *open_viewer = gtk_menu_item_new_with_label(L("打开控制端", "Open viewer"));
++    g_signal_connect(open_viewer, "activate", G_CALLBACK(on_open_viewer), NULL);
++    gtk_menu_shell_append(GTK_MENU_SHELL(tray_menu), open_viewer);
+     gtk_menu_shell_append(GTK_MENU_SHELL(tray_menu), tray_allow);
+     gtk_menu_shell_append(GTK_MENU_SHELL(tray_menu), gtk_separator_menu_item_new());
+     gtk_menu_shell_append(GTK_MENU_SHELL(tray_menu), quit);
+@@ -484,6 +508,17 @@ static void build_window(void) {
+     gtk_grid_attach(GTK_GRID(body), share_button, 2, 1, 1, 1);
+     gtk_box_pack_start(GTK_BOX(card), body, FALSE, FALSE, 0);
+ 
++    // 打开控制端：被控端和控制端合并成一个入口
++    GtkWidget *viewer_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
++    gtk_container_set_border_width(GTK_CONTAINER(viewer_row), 20);
++    GtkWidget *viewer_button = gtk_button_new_with_label(L("打开控制端", "Open viewer"));
++    gtk_style_context_add_class(gtk_widget_get_style_context(viewer_button), "hbtn");
++    gtk_widget_set_valign(viewer_button, GTK_ALIGN_CENTER);
++    g_signal_connect(viewer_button, "clicked", G_CALLBACK(on_open_viewer), NULL);
++    gtk_box_pack_start(GTK_BOX(viewer_row), viewer_button, FALSE, FALSE, 0);
++    gtk_box_pack_start(GTK_BOX(viewer_row), label(L("控制其他设备（开始协助）", "Control other devices (start assisting)"), "hint"), FALSE, FALSE, 0);
++    gtk_box_pack_start(GTK_BOX(card), viewer_row, FALSE, FALSE, 0);
++
+     hint_label = label("", "hint");
+     gtk_box_pack_start(GTK_BOX(root), hint_label, FALSE, FALSE, 0);
+     account_card = build_account_card();
