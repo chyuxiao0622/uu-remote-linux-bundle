@@ -10,16 +10,16 @@
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst`，然后：
+从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst`，然后：
 
 ```bash
 # 校验（可选但推荐）
-sha256sum -c <<< "e816ddad4752b6982e73ba03b27d67e4eafe06db71e457383ea5aa93043d6acd  uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst"
+sha256sum -c <<< "1ea3cb41f003929793873a70a03410362464b1196f8da67e86a969a97fc2a97f  uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst"
 
 # 如果之前装过上游的 uu-remote-linux-bin，先卸掉（本包与它 conflicts）
 sudo pacman -R uu-remote-linux-bin
 
-sudo pacman -U uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst
+sudo pacman -U uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst
 ```
 
 本包 `provides` 了 `uu-remote` / `uu-remote-linux-bin`，并与它们 `conflicts`，
@@ -32,20 +32,22 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst
 ```bash
 # 机器 A（共享方）
 sudo pacman -S samba
-sudo cp uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst /共享目录/
+sudo cp uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst /共享目录/
 sudo systemctl enable --now smb.service
 
 # 机器 B（安装方）
-smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst'
-sudo pacman -U uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst
+smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst'
+sudo pacman -U uu-remote-linux-bundle-0.2.57-2-x86_64.pkg.tar.zst
 ```
 
 ## 包里有什么
 
 | 内容 | 路径 |
 | --- | --- |
-| 控制端 `uuremote-viewer` | `/usr/bin/uuremote-viewer` → `/opt/uu-remote-linux/bin/` |
+| 统一启动器（被控端 / 控制端） | `/usr/bin/uu-remote` → `/opt/uu-remote-linux/bin/uu-remote` |
+| 统一界面（仿官方客户端） | `/opt/uu-remote-linux/bin/uu-remote-ui` |
 | 被控端 `uuremote-server` | `/usr/bin/uuremote-server` → `/opt/uu-remote-linux/bin/` |
+| 控制端 `uuremote-viewer` | `/usr/bin/uuremote-viewer` → `/opt/uu-remote-linux/bin/` |
 | 打包的 ffmpeg | `/opt/uu-remote-linux/bin/ffmpeg` |
 | GTK3 / glib / ffmpeg 等运行库 | `/opt/uu-remote-linux/lib/` |
 | GTK 输入法模块、glib schemas | `/opt/uu-remote-linux/lib/gtk-3.0/`、`/opt/uu-remote-linux/share/` |
@@ -57,10 +59,21 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst
 
 ## 用法
 
-### 控制别人的电脑
+应用菜单里**只有一个**「UU 远程 Linux」入口（被控端和控制端合并在一起）：
 
-应用菜单打开 **「UU 远程 Linux 控制端」**，用手机 UU 远程 App 扫码登录，
-然后在「远程协助」里选设备，或在「开始协助」输入对方给的设备 ID + 验证码。
+- 点开后是一个仿官方 UU 远程客户端的窗口：左侧导航「我的设备 / 远程协助 / 开始协助 / 扫码登录」，
+  右侧显示本机设备 ID、账号、是否允许他人远程协助
+- 「打开主机窗口」= 打开被控端（显示设备 ID 和验证码，开关「允许他人远程协助」）
+- 「打开控制端」= 打开控制端（设备列表、远程协助、开始协助）
+
+命令行同样可用：
+
+```bash
+uu-remote              # 打开统一界面
+uu-remote host         # 直接打开被控端窗口
+uu-remote viewer       # 直接打开控制端窗口
+uu-remote login        # 扫码登录
+```
 
 ### 别人控制这台机器（被控端）
 
@@ -69,7 +82,7 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-1-x86_64.pkg.tar.zst
 systemctl --user enable --now uuremote-native.service
 ```
 
-然后打开 **「UU 远程 Linux 主机」**（或 `uuremote-server show`）：
+然后打开统一界面里的「打开主机窗口」：
 
 - 窗口里会显示 **本设备 ID** 和 **验证码**
 - 把这两个发给对方，对方在 UU 远程「开始协助」里输入即可
@@ -122,15 +135,23 @@ sudo pacman -R uu-remote-linux-bundle
 
 ## 构建
 
-需要先安装上游的 AUR 包（用来提供原始二进制和插件）：
+本包自带上游的 release 源包，**不需要先装任何 AUR 包**，直接：
 
 ```bash
-yay -S uu-remote-linux-bin
+git clone https://github.com/chyuxiao0622/uu-remote-linux-bundle.git
+cd uu-remote-linux-bundle
 makepkg -si
 ```
+
+构建机上需要装这些库（`makepkg` 会自动用 `makedepends` 检查）：
+`gtk3`、`ffmpeg`、`cairo`、`pango`、`gdk-pixbuf2`、`glib2`、`wayland`、
+`libx11`、`libxext`、`libxfixes`、`libxkbcommon`、`libxtst`、`sdl2`、`gcc`。
+
+`uu-remote-ui.c` 是本仓库自己写的统一界面（仿官方客户端），用 GTK3 编译，
+运行时不额外依赖——GTK 库已经打进包里了。
 
 ## 许可
 
 - 上游 `uu-remote-linux`：GPL-3.0-or-later，源码见 <https://github.com/VallierDev/uu-remote-linux>
-- 本仓库的打包脚本：同上
+- 本仓库的打包脚本与 `uu-remote-ui.c`：同上
 - 包内附带的第三方运行库（GTK、ffmpeg 等）遵循各自的许可证

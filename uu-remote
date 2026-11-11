@@ -1,0 +1,76 @@
+#!/bin/sh
+# UU 远程 Linux —— 统一入口
+#
+#   uu-remote            弹出选择框：被控端（主机）/ 控制端
+#   uu-remote host       直接打开被控端（主机）窗口
+#   uu-remote viewer     直接打开控制端窗口
+#   uu-remote login      扫码登录
+#
+# 没有 zenity / kdialog 时，默认打开被控端窗口。
+
+set -eu
+
+_pfx=/opt/uu-remote-linux
+export LD_LIBRARY_PATH="$_pfx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$_pfx/bin:$PATH"
+export GSETTINGS_SCHEMA_DIR="$_pfx/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+export GTK_IM_MODULE_FILE="$_pfx/lib/gtk-3.0/3.0.0/immodules.cache"
+export XDG_DATA_DIRS="$_pfx/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+_server="$_pfx/bin/uuremote-server"
+_viewer="$_pfx/bin/uuremote-viewer"
+
+host() { exec "$_server" show "$@"; }
+viewer() { exec "$_viewer" ui "$@"; }
+
+choose() {
+	# 优先用自带的 GTK 界面（和 UU 远程客户端同一套视觉）
+	if [ -x "$_pfx/bin/uu-remote-ui" ]; then
+		exec "$_pfx/bin/uu-remote-ui"
+	fi
+
+	if command -v kdialog >/dev/null 2>&1; then
+		choice=$(kdialog --title "UU 远程 Linux" --geometry 400x200 \
+			--menu "选择要打开的窗口" \
+			"被控端（主机）" "host" \
+			"控制端" "viewer" 2>/dev/null) || exit 0
+		case "$choice" in
+			host) host ;;
+			viewer) viewer ;;
+		esac
+		return
+	fi
+
+	if command -v zenity >/dev/null 2>&1; then
+		choice=$(zenity --list --title="UU 远程 Linux" --width=520 --height=240 \
+			--column="模式" --column="说明" \
+			"被控端（主机）" "本机作为被控端：显示设备 ID、验证码，可扫码登录" \
+			"控制端" "控制别的设备：设备列表、远程协助" 2>/dev/null) || exit 0
+		case "$choice" in
+			被控端*) host ;;
+			控制端*) viewer ;;
+		esac
+		return
+	fi
+
+	# 没有选择框工具时，直接开被控端窗口
+	host
+}
+
+case "${1-}" in
+	host|被控端) host ;;
+	viewer|控制端) viewer ;;
+	login|登录) exec "$_server" login ;;
+	menu|选择) choose ;;
+	""|help|-h|--help)
+		if [ "${1-}" = "help" ] || [ "${1-}" = "-h" ] || [ "${1-}" = "--help" ]; then
+			echo "用法: uu-remote [menu|host|viewer|login]"
+			exit 0
+		fi
+		choose
+		;;
+	*)
+		echo "用法: uu-remote [menu|host|viewer|login]" >&2
+		exit 2
+		;;
+esac
