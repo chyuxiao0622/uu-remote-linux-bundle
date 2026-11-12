@@ -11,16 +11,16 @@
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst`，然后：
+从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst`，然后：
 
 ```bash
 # 校验（可选但推荐）
-sha256sum -c <<< "3c67ce5fad00c542495374f51b051e6e60523ffe8cc3205e232c08182676b703  uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst"
+sha256sum -c <<< "028d939b71f13a7dfe9bbae13453889b8456cd7d8ef7b0a3402286d5c3f7769d  uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst"
 
 # 如果之前装过上游的 uu-remote-linux-bin，先卸掉（本包与它 conflicts）
 sudo pacman -R uu-remote-linux-bin
 
-sudo pacman -U uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst
+sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
 ```
 
 ### 局域网分发
@@ -30,12 +30,12 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst
 ```bash
 # 机器 A（共享方）
 sudo pacman -S samba
-sudo cp uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst /共享目录/
+sudo cp uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst /共享目录/
 sudo systemctl enable --now smb.service
 
 # 机器 B（安装方）
-smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst'
-sudo pacman -U uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst
+smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst'
+sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
 ```
 
 ## 被控端和控制端怎么合并的
@@ -53,6 +53,37 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-3-x86_64.pkg.tar.zst
 
 界面本身完全沿用上游自己的 GTK 实现（跟随系统明暗主题、Noto Sans CJK 字体、卡片式布局），
 本仓库不再自带自绘界面。
+
+
+## 远控流畅度
+
+本包默认按「流畅优先」调过（源码级补丁 `uu-perf-tune.patch`）：
+
+| 项 | 默认 | 环境变量 |
+| --- | --- | --- |
+| 控制端请求帧率 | 30 fps | — |
+| 宿主端采集帧率上限 | 30 fps | `UU_MAX_FPS`（0 = 不限） |
+| 自动画质码率上限 | 12 Mbit/s | `UU_MAX_KBIT`（0 = 不限） |
+
+想改回上游默认行为，在 systemd 用户服务里加环境变量即可：
+
+```ini
+[Service]
+Environment=UU_MAX_FPS=60
+Environment=UU_MAX_KBIT=0
+```
+
+其它可能有用的开关：
+
+| 变量 | 作用 |
+| --- | --- |
+| `UU_VIDEO_ENCODER=nvenc` | 强制 NVENC（本机默认自动探测到 NVENC） |
+| `UU_VIDEO_CODEC=h264` | 强制 H.264（软件解码端更省 CPU，代价是同画质码率更大） |
+| `UU_PORTAL_DMABUF=0` | 关掉 Portal 的 DMA-BUF，改用进程内上传 |
+| `UU_X11_MULTISCREEN=1` | X11 下把多显示器拼成一张画面 |
+
+排查性能：`uuremote-server desktop-video-probe /tmp/probe.h264` 会打印实际使用的
+编码器、分辨率、帧率和码率上限（`UU_PROBE_FPS` / `UU_PROBE_FRAMES` 可调）。
 
 ## 包里有什么
 

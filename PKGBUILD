@@ -4,7 +4,7 @@
 # 额外打一个补丁：把「被控端」和「控制端」合并成一个入口（主机窗口里直接拉起控制端）。
 pkgname=uu-remote-linux-bundle
 pkgver=0.2.57
-pkgrel=3
+pkgrel=4
 pkgdesc='Unofficial Linux host and viewer for NetEase UU Remote (self-contained: all runtime deps bundled)'
 arch=('x86_64')
 url='https://github.com/VallierDev/uu-remote-linux'
@@ -44,12 +44,14 @@ makedepends=(
 source=(
   "https://github.com/VallierDev/uu-remote-linux/archive/refs/tags/v${pkgver}.tar.gz"
   'uu-merged-entry.patch'
+  'uu-perf-tune.patch'
   'uuremote-native.service'
   '60-uu-remote-linux-uinput.rules'
 )
 sha256sums=(
   'd97db5a93d6cfd71b1973a41694032d6b81d1f894f6359ffa93b3b2b871cb04b'
   '37d082770b7ffc7f3d37787d6f91f1bdf22ed89c9eeaf8ae48a3c5fac7160686'
+  'cbe6b2176dc7bfe927c281b15831f3a75e9b5dc9b54d306400515020e40c2253'
   '1bba2b6ada40e980c23c4a78188d694e8c8bc39c3d39e9ffb8a41947501da48e'
   'df21d14e39e6912261e9ecdc2422d242612053beb2cbc3a8755938020abf3e6f'
 )
@@ -65,12 +67,15 @@ build() {
   export LDFLAGS="${LDFLAGS//-flto=auto/}"
 
   # 合并被控端与控制端的入口：主机窗口里直接拉起同目录的控制端
+  # 性能调优：控制端默认 30 帧、宿主端帧率与自动画质码率封顶
   # （已经打过补丁时跳过，方便增量构建）
-  if patch -Np1 --dry-run -i "${srcdir}/uu-merged-entry.patch" >/dev/null 2>&1; then
-    patch -Np1 -i "${srcdir}/uu-merged-entry.patch"
-  else
-    echo "uu-merged-entry.patch 已经应用过了，跳过" >&2
-  fi
+  for p in uu-merged-entry.patch uu-perf-tune.patch; do
+    if patch -Np1 --dry-run -i "${srcdir}/$p" >/dev/null 2>&1; then
+      patch -Np1 -i "${srcdir}/$p"
+    else
+      echo "$p 已经应用过了，跳过" >&2
+    fi
+  done
 
   cargo build --release --locked --features "$_features"
 }

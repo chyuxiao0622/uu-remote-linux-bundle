@@ -1,0 +1,158 @@
+diff --git a/src/capture_setting.rs b/src/capture_setting.rs
+index eb5b4e5..3b906cb 100644
+--- a/src/capture_setting.rs
++++ b/src/capture_setting.rs
+@@ -54,7 +54,7 @@ pub struct VideoSettings {
+ }
+ 
+ impl Default for VideoSettings {
+-    fn default() -> Self { let (source_id,source_generation)=crate::wayland::selection(); Self { source_id,source_generation, codec: VideoCodec::H264, fps: 60, quality: QUALITY_AUTO, custom_bps: 0, output: None, chroma: CHROMA_420 } }
++    fn default() -> Self { let (source_id,source_generation)=crate::wayland::selection(); Self { source_id,source_generation, codec: VideoCodec::H264, fps: 30, quality: QUALITY_AUTO, custom_bps: 0, output: None, chroma: CHROMA_420 } }
+ }
+ 
+ /// Selectable smaller stream sizes with the desktop's aspect ratio (even dimensions).
+@@ -88,7 +88,15 @@ impl VideoSettings {
+             QUALITY_BLURAY => Some(20_000),
+             QUALITY_CUSTOM if self.custom_bps > 0 =>
+                 Some((self.custom_bps / 1_000).clamp(1, 100_000)),
+-            _ => None,
++            // 自动：上游是不限码率的常量质量（CQ18）。远控场景下不限码率会让带宽占用和抖动
++            // 失控（实测 1080p60 动态画面能到几十 Mbit/s），这里加一个上限，默认 12 Mbit/s。
++            // UU_MAX_KBIT 可覆盖（单位 kbit/s，0 = 不限）。
++            _ => {
++                static CAP: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
++                let cap = *CAP.get_or_init(|| std::env::var("UU_MAX_KBIT").ok()
++                    .and_then(|v| v.parse::<u32>().ok()).unwrap_or(12_000));
++                if cap == 0 { None } else { Some(cap.clamp(500, 100_000)) }
++            }
+         }
+     }
+ }
+@@ -104,6 +112,15 @@ fn message<'a>(fields: &[WireField<'a>], n: u32) -> Option<&'a [u8]> {
+     fields.iter().find_map(|f| match (f.number, &f.value) { (x, WireValue::Bytes(b)) if x == n => Some(*b), _ => None })
+ }
+ 
++/// 远控帧率上限：60 帧会让采集、编码、解码和管道传输的开销成倍增加，体感反而更卡。
++/// 默认封顶 30 帧，UU_MAX_FPS 可覆盖（0 = 不限）。
++fn fps_cap(fps: u32) -> u32 {
++    static MAX: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
++    let max = *MAX.get_or_init(|| std::env::var("UU_MAX_FPS").ok()
++        .and_then(|v| v.parse::<u32>().ok()).unwrap_or(30));
++    if max == 0 { fps } else { fps.min(max) }
++}
++
+ /// Frame rate from a value that is either an fps option index (observed 1 = 30, 2 = 60;
+ /// 3/4 assumed 90/144 from the menu order) or already frames per second.
+ fn fps_from_option(value: u64) -> Option<u64> {
+@@ -187,7 +204,7 @@ fn apply_rpc(rpc: &[WireField], settings: &watch::Sender<VideoSettings>, native:
+         // rule as pick_codec at stream start: h264 stays H.264; auto/h265 still follow the request.
+         if number(&fields, 13) == Some(2) && h265 && forced != Some("h264") { next.codec = VideoCodec::H265; }
+         // Field 1 is the viewer's fps option index (1 = 30, 2 = 60, ...); 18 fpsCount is the frame rate.
+-        if let Some(fps) = number(&fields, 18).filter(|v| *v > 0).or_else(|| number(&fields, 1).and_then(fps_from_option)) { next.fps = fps as u32; }
++        if let Some(fps) = number(&fields, 18).filter(|v| *v > 0).or_else(|| number(&fields, 1).and_then(fps_from_option)) { next.fps = fps_cap(fps as u32); }
+         if let Some(quality) = number(&fields, 2).filter(|v| *v > 0) { next.quality = quality; }
+         if let Some(bitrate) = number(&fields, 8).filter(|v| *v > 0) { next.custom_bps = custom_bitrate_bps(bitrate); }
+         // Field 7 chorma_format (sic): 3 = 4:4:4 when 真彩 is on, 1 = 4:2:0. The Sync reports what is encoded.
+@@ -337,15 +354,36 @@ mod tests {
+         let (tx, rx) = watch::channel(VideoSettings::default());
+         handle_rpc(&decode_wire(&rpc(1, 3, &[8, 200, 1])).unwrap(), &tx, (1920, 1080)).unwrap();
+         assert_eq!(rx.borrow().fps, MAX_FPS);
+-        // Observed viewer request: option 2 with fpsCount 60 must stream 60 fps, not 2.
++        // Observed viewer request: option 2 with fpsCount 60 must stream 60 fps, not 2 —
++        // but the frame rate is capped for remote-control smoothness (UU_MAX_FPS, default 30).
+         let observed = [8, 2, 16, 4, 40, 128, 15, 48, 184, 8, 144, 1, 60];
+         handle_rpc(&decode_wire(&rpc(4, 2, &observed)).unwrap(), &tx, (1920, 1080)).unwrap();
+-        assert_eq!(rx.borrow().fps, 60);
++        assert_eq!(rx.borrow().fps, fps_cap(60));
++        assert!(rx.borrow().fps <= 30);
+         handle_rpc(&decode_wire(&rpc(2, 4, &[8, QUALITY_BLURAY as u8])).unwrap(), &tx, (1920, 1080)).unwrap();
+         assert_eq!(rx.borrow().max_kbps(), Some(20_000));
+         assert!(handle_rpc(&decode_wire(&rpc(3, 9, &[])).unwrap(), &tx, (1920, 1080)).is_none());
+     }
+ 
++    #[test]
++    fn frame_rate_is_capped_for_smoothness() {
++        let (tx, rx) = watch::channel(VideoSettings::default());
++        let mut body = Vec::new();
++        put_varint(18, 60, &mut body); // fpsCount 60
++        handle_rpc(&decode_wire(&rpc(1, 2, &body)).unwrap(), &tx, (1920, 1080)).unwrap();
++        assert_eq!(rx.borrow().fps, 30, "60 fps must be capped to 30 by default");
++        let mut body = Vec::new();
++        put_varint(18, 30, &mut body);
++        handle_rpc(&decode_wire(&rpc(2, 2, &body)).unwrap(), &tx, (1920, 1080)).unwrap();
++        assert_eq!(rx.borrow().fps, 30, "30 fps stays 30");
++    }
++
++    #[test]
++    fn auto_quality_has_a_bitrate_cap() {
++        let settings = VideoSettings { quality: QUALITY_AUTO, ..VideoSettings::default() };
++        assert_eq!(settings.max_kbps(), Some(12_000), "auto quality must stay bounded");
++    }
++
+     #[test]
+     fn true_color_request_selects_444_only_when_the_encoder_supports_it() {
+         let (tx, rx) = watch::channel(VideoSettings::default());
+@@ -472,7 +510,7 @@ mod tests {
+                     handle_rpc(&decode_wire(&rpc(78, 2, &body)).unwrap(), &tx, native).unwrap();
+                     assert_eq!(rx.borrow().output, expected);
+                     assert_eq!(rx.borrow().quality, QUALITY_BLURAY);
+-                    assert_eq!(rx.borrow().fps, 60);
++                    assert_eq!(rx.borrow().fps, fps_cap(60)); // 帧率封顶
+                     let mut native_request = Vec::new();
+                     put_varint(5, u64::from(native.0), &mut native_request);
+                     put_varint(6, u64::from(native.1), &mut native_request);
+@@ -508,8 +546,10 @@ mod tests {
+ 
+     #[test]
+     fn auto_quality_keeps_constant_quality_encoding() {
+-        assert_eq!(VideoSettings::default().max_kbps(), None);
+-        assert_eq!(VideoSettings { quality: QUALITY_CUSTOM, custom_bps: 0, ..Default::default() }.max_kbps(), None);
++        // 自动画质默认加上码率上限（默认 12 Mbit/s，UU_MAX_KBIT 可调，0 = 不限），
++        // 避免远控时带宽占用和抖动失控。
++        assert_eq!(VideoSettings::default().max_kbps(), Some(12_000));
++        assert_eq!(VideoSettings { quality: QUALITY_CUSTOM, custom_bps: 0, ..Default::default() }.max_kbps(), Some(12_000));
+         assert_eq!(VideoSettings { quality: QUALITY_CUSTOM, custom_bps: 12_000_000, ..Default::default() }.max_kbps(), Some(12_000));
+     }
+ 
+@@ -549,7 +589,7 @@ mod tests {
+     fn sync_reports_fps_quality_and_resolution() {
+         let payload = sync_payload(&VideoSettings::default(), (1920, 1080));
+         let fields = decode_wire(&payload).unwrap();
+-        assert_eq!(number(&fields, 1), Some(60));
++        assert_eq!(number(&fields, 1), Some(30)); // 默认 30 帧（远控更流畅）
+         assert_eq!(number(&fields, 2), Some(QUALITY_AUTO));
+         assert_eq!(number(&fields, 5), Some(1920));
+         assert_eq!(number(&fields, 10), Some(1080));
+diff --git a/src/video.rs b/src/video.rs
+index bcf3dd1..3c7db78 100644
+--- a/src/video.rs
++++ b/src/video.rs
+@@ -1846,8 +1846,10 @@ mod tests {
+     fn hevc_options_keep_420_low_latency_and_existing_rate_policy() {
+         let settings = VideoSettings { codec: VideoCodec::H265, ..Default::default() };
+         let cpu = cpu_hevc_options(&settings, "30");
++        // 自动画质现在带码率上限（默认 12 Mbit/s）：CPU 路径改用 ABR（-b:v 9000k），
++        // VBV 缓冲按上限收敛（HEVC/CPU 是一秒码率，即 12000k）。
+         for pair in [["-c:v", "libx265"], ["-profile:v", "main"], ["-pix_fmt", "yuv420p"],
+-            ["-bf", "0"], ["-bufsize", "30000k"]] {
++            ["-bf", "0"], ["-bufsize", "12000k"], ["-b:v", "9000k"]] {
+             assert!(cpu.windows(2).any(|window| window == pair));
+         }
+         let params = x265_params("30");
+diff --git a/src/viewer_main.rs b/src/viewer_main.rs
+index 06c3c35..24d9491 100644
+--- a/src/viewer_main.rs
++++ b/src/viewer_main.rs
+@@ -16,9 +16,9 @@ use viewer::clipboard;
+ use viewer::{api::Api,rtc::ReadyPolicy,session::{Options,Session},wire::Shape};
+ use std::time::Duration;
+ const HELP:&str="Experimental native viewer.\n  uuremote-viewer ui   (GTK window: sign-in, devices, sessions) Desktop UI requires viewer-sdl (decodes with the ffmpeg CLI, or FFmpeg 6.x libraries with viewer-ffmpeg).\n  uuremote-viewer power DEVICE reboot|shutdown\n  uuremote-viewer type DEVICE [options]   (secret from UU_INPUT_ENV or stdin; reuses running viewer)\n    options: --delay-ms MS --omit-last N --snapshot PATH --dry-run --new-session\n  uuremote-viewer unbind DEVICE [--shared]   (从账号删除设备 / remove a device from the account)\n  uuremote-viewer terminal DEVICE [SESSION]\n  uuremote-viewer files DEVICE ls PATH | get REMOTE LOCAL | put LOCAL REMOTE\n  uuremote-viewer portmap DEVICE LOCAL_PORT HOST PORT\n  uuremote-viewer files-ui|portmap-ui|terminal-ui DEVICE NAME   (GTK tool windows)\n  uuremote-viewer login [--no-gui]\n  uuremote-viewer devices METHOD ARRAY_POINTER ID_POINTER NAME_POINTER\n  uuremote-viewer assist CONNECT_ID   (验证码从 stdin 读取一行)\n  uuremote-viewer connect DEVICE true|false SHAPE_JSON echo|manual raw|legacy [--view-only]\nVideo: UU_VIEWER_CODEC=h264 forces H.264; UU_VIEWER_CHROMA=444 requests true color (default 4:2:0).\nAudio: UU_VIEWER_AUDIO=0 disables playback. UU_VIEWER_VIEW_ONLY=1 disables desktop input.\nDevice-list method/JSON pointers and compatibility shape require verified operator configuration.\nQR login reuses the sibling uuremote-server login command. Never run login in a captured log.\nEcho readiness is transport observation only; desktop sessions send one sendVideoTrack RPC (like the official iPhone viewer).";
+-const DEFAULT_SHAPE:&str=r#"{"capture_type":1,"platform":3,"client_version":"4.42.0","width":1920,"height":1080,"fps":60,"chroma":1,
+- "decoders":[{"fps":60,"codec":1,"width":3840,"height":2160,"chroma":1}],"display_modes":[[1920,1080,60]],
+- "displays":[{"id":1,"fps":60,"type":0,"hdr":0}],
++const DEFAULT_SHAPE:&str=r#"{"capture_type":1,"platform":3,"client_version":"4.42.0","width":1920,"height":1080,"fps":30,"chroma":1,
++ "decoders":[{"fps":30,"codec":1,"width":3840,"height":2160,"chroma":1}],"display_modes":[[1920,1080,30]],
++ "displays":[{"id":1,"fps":30,"type":0,"hdr":0}],
+  "codecs":[{"video_codec":1,"chroma_sampling":1,"codec_impl":34,"bit_depth":8,"width":3840,"height":2160}],
+  "feature_flag":[[1,6],[2,2],[3,1],[4,2],[6,2],[7,2],[8,3],[9,1]]}"#;
+ #[tokio::main]
