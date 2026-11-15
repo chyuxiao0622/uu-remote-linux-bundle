@@ -11,16 +11,16 @@
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst`，然后：
+从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst`，然后：
 
 ```bash
 # 校验（可选但推荐）
-sha256sum -c <<< "028d939b71f13a7dfe9bbae13453889b8456cd7d8ef7b0a3402286d5c3f7769d  uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst"
+sha256sum -c <<< "b569d4676f9558f673e62667b5c3ac998693e809ca5e175b78182018c127b714  uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst"
 
 # 如果之前装过上游的 uu-remote-linux-bin，先卸掉（本包与它 conflicts）
 sudo pacman -R uu-remote-linux-bin
 
-sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
+sudo pacman -U uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst
 ```
 
 ### 局域网分发
@@ -30,12 +30,12 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
 ```bash
 # 机器 A（共享方）
 sudo pacman -S samba
-sudo cp uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst /共享目录/
+sudo cp uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst /共享目录/
 sudo systemctl enable --now smb.service
 
 # 机器 B（安装方）
-smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst'
-sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
+smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst'
+sudo pacman -U uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst
 ```
 
 ## 被控端和控制端怎么合并的
@@ -57,20 +57,33 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-4-x86_64.pkg.tar.zst
 
 ## 远控流畅度
 
-本包默认按「流畅优先」调过（源码级补丁 `uu-perf-tune.patch`）：
+本包默认按「流畅优先」调过（源码级补丁 `uu-perf-tune.patch` + systemd 调优 drop-in）：
 
 | 项 | 默认 | 环境变量 |
 | --- | --- | --- |
 | 控制端请求帧率 | 30 fps | — |
 | 宿主端采集帧率上限 | 30 fps | `UU_MAX_FPS`（0 = 不限） |
 | 自动画质码率上限 | 12 Mbit/s | `UU_MAX_KBIT`（0 = 不限） |
+| 编码器 VBV 缓冲 | 50 ms（≈0.07 秒） | `UU_NVENC_BUFFER_MS`（10–1000，默认 1000 ≈ 0.9 秒） |
 
-想改回上游默认行为，在 systemd 用户服务里加环境变量即可：
+上面三个值由包安装的 drop-in 提供：
 
-```ini
+```
+/usr/lib/systemd/user/uuremote-native.service.d/performance.conf
+```
+
+想改回上游默认行为，注释掉 drop-in 里的对应行即可，或者在用户级放一份覆盖
+（用户级优先级更高）：
+
+```bash
+mkdir -p ~/.config/systemd/user/uuremote-native.service.d
+cat > ~/.config/systemd/user/uuremote-native.service.d/performance.conf <<'EOF'
 [Service]
 Environment=UU_MAX_FPS=60
 Environment=UU_MAX_KBIT=0
+Environment=UU_NVENC_BUFFER_MS=1000
+EOF
+systemctl --user daemon-reload && systemctl --user restart uuremote-native.service
 ```
 
 其它可能有用的开关：

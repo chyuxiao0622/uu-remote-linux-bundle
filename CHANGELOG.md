@@ -3,6 +3,42 @@
 本项目（`uu-remote-linux-bundle`）的所有变更记录都写在这里，
 每个版本同时对应一个 GitHub Release。
 
+## 0.2.57-5 — 降低编码器缓冲延迟（实测省约 0.8 秒）
+
+上一版把帧率和码率封住了，但延迟还有一大块没动：**编码器的 VBV 缓冲**。
+
+上游 NVENC 的默认缓冲是「1 秒码率上限」（钳在 500–8000 kbit）。在 12 Mbit/s 上限下
+就是 `-bufsize 8000k`，也就是**编码器内部压了将近 0.9 秒的码流**才吐出去 —— 这段
+纯等待，直接变成端到端延迟。上游文档里其实提过 `UU_NVENC_BUFFER_MS`（10–1000 ms），
+但默认没开。
+
+这一版让包直接带上 systemd 调优 drop-in：
+
+```ini
+# /usr/lib/systemd/user/uuremote-native.service.d/performance.conf
+[Service]
+Environment=UU_NVENC_BUFFER_MS=50
+Environment=UU_MAX_FPS=30
+Environment=UU_MAX_KBIT=12000
+```
+
+实测（同一台机器，NVENC，12 Mbit/s 上限）：
+
+| | `-bufsize` | 折算缓冲 |
+| --- | --- | --- |
+| 默认 | 8000k | ≈ 0.89 秒 |
+| 调优后 | 600k | ≈ 0.07 秒 |
+
+**端到端延迟直接减少约 0.8 秒**，而且不用改任何代码。
+
+想改回上游默认：注释掉 drop-in 里的三行，或者在用户级放一份覆盖
+
+```
+~/.config/systemd/user/uuremote-native.service.d/performance.conf
+```
+
+（用户级优先级高于 /usr/lib 级的系统 drop-in。）
+
 ## 0.2.57-4 — 远控流畅度优化
 
 实测定位到卡顿的三个主要开销（4K 采集 + 60fps + 不限码率），用第二个补丁

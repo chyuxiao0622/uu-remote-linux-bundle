@@ -4,7 +4,7 @@
 # 额外打一个补丁：把「被控端」和「控制端」合并成一个入口（主机窗口里直接拉起控制端）。
 pkgname=uu-remote-linux-bundle
 pkgver=0.2.57
-pkgrel=4
+pkgrel=5
 pkgdesc='Unofficial Linux host and viewer for NetEase UU Remote (self-contained: all runtime deps bundled)'
 arch=('x86_64')
 url='https://github.com/VallierDev/uu-remote-linux'
@@ -47,6 +47,7 @@ source=(
   'uu-perf-tune.patch'
   'uuremote-native.service'
   '60-uu-remote-linux-uinput.rules'
+  'uuremote-native-performance.conf'
 )
 sha256sums=(
   'd97db5a93d6cfd71b1973a41694032d6b81d1f894f6359ffa93b3b2b871cb04b'
@@ -54,6 +55,7 @@ sha256sums=(
   'cbe6b2176dc7bfe927c281b15831f3a75e9b5dc9b54d306400515020e40c2253'
   '1bba2b6ada40e980c23c4a78188d694e8c8bc39c3d39e9ffb8a41947501da48e'
   'df21d14e39e6912261e9ecdc2422d242612053beb2cbc3a8755938020abf3e6f'
+  '19b795ac14ac4ed1e42cfaac787fbf8818217783321e07998d42bc3a50e1cc18'
 )
 
 build() {
@@ -148,6 +150,9 @@ EOF
          "$pkgdir/usr/share/applications/uu-remote-linux.desktop"
   install -Dm644 "$srcdir/${_up}/contrib/desktop/uu-remote-linux.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/uu-remote-linux.svg"
   install -Dm644 "$srcdir/uuremote-native.service" "$pkgdir/usr/lib/systemd/user/uuremote-native.service"
+  # 性能调优：降低编码器 VBV 缓冲、帧率与码率上限
+  install -d "$pkgdir/usr/lib/systemd/user/uuremote-native.service.d"
+  install -Dm644 "$srcdir/uuremote-native-performance.conf" "$pkgdir/usr/lib/systemd/user/uuremote-native.service.d/performance.conf"
   sed 's|^ExecStart=.*|ExecStart=/usr/bin/uu-virtual-desktop|' \
     "$srcdir/${_up}/contrib/virtual-desktop/uu-virtual-desktop.service" \
     > "$pkgdir/usr/lib/systemd/user/uu-virtual-desktop.service"
