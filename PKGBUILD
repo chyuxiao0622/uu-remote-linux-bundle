@@ -4,7 +4,7 @@
 # 额外打一个补丁：把「被控端」和「控制端」合并成一个入口（主机窗口里直接拉起控制端）。
 pkgname=uu-remote-linux-bundle
 pkgver=0.2.57
-pkgrel=5
+pkgrel=6
 pkgdesc='Unofficial Linux host and viewer for NetEase UU Remote (self-contained: all runtime deps bundled)'
 arch=('x86_64')
 url='https://github.com/VallierDev/uu-remote-linux'

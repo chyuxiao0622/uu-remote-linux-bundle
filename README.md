@@ -11,16 +11,16 @@
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst`，然后：
+从 [Releases](../../releases) 下载 `uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst`，然后：
 
 ```bash
 # 校验（可选但推荐）
-sha256sum -c <<< "b569d4676f9558f673e62667b5c3ac998693e809ca5e175b78182018c127b714  uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst"
+sha256sum -c <<< "409ddc767f730394cd15d534bffba744fcce73e7b261c8d9e82a65442b4c7d76  uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst"
 
 # 如果之前装过上游的 uu-remote-linux-bin，先卸掉（本包与它 conflicts）
 sudo pacman -R uu-remote-linux-bin
 
-sudo pacman -U uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst
+sudo pacman -U uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst
 ```
 
 ### 局域网分发
@@ -30,12 +30,12 @@ sudo pacman -U uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst
 ```bash
 # 机器 A（共享方）
 sudo pacman -S samba
-sudo cp uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst /共享目录/
+sudo cp uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst /共享目录/
 sudo systemctl enable --now smb.service
 
 # 机器 B（安装方）
-smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst'
-sudo pacman -U uu-remote-linux-bundle-0.2.57-5-x86_64.pkg.tar.zst
+smbclient //机器A/共享名 -U 用户名 -c 'get uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst'
+sudo pacman -U uu-remote-linux-bundle-0.2.57-6-x86_64.pkg.tar.zst
 ```
 
 ## 被控端和控制端怎么合并的
